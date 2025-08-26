@@ -41,23 +41,70 @@ func getPort() string {
 
 // TokenManager handles OAuth2 token operations
 type TokenManager struct {
-	config   *oauth2.Config
-	token    *oauth2.Token
-	client   *http.Client
-	codeChan chan string
-	errChan  chan error
+	config       *oauth2.Config
+	token        *oauth2.Token
+	client       *http.Client
+	codeChan     chan string
+	errChan      chan error
+	githubConfig *GitHubConfig
+	redisClient  *RedisClient
 }
 
 // NewTokenManager creates a new TokenManager instance
 func NewTokenManager() (*TokenManager, error) {
-	clientID := os.Getenv("GOOGLE_CLIENT_ID")
-	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-
-	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set")
+	redisClient, err := NewRedisClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
 
-	config := &oauth2.Config{
+	githubConfig, err := NewGitHubConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub config: %w", err)
+	}
+
+	tm := &TokenManager{
+		codeChan:     make(chan string, 1),
+		errChan:      make(chan error, 1),
+		githubConfig: githubConfig,
+		redisClient:  redisClient,
+	}
+
+	if err := tm.loadSecretsFromRedis(context.Background()); err != nil {
+		log.Printf("Warning: failed to load secrets from Redis: %v", err)
+
+		clientID := os.Getenv("GOOGLE_CLIENT_ID")
+		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+
+		if clientID == "" || clientSecret == "" {
+			return nil, fmt.Errorf("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set")
+		}
+
+		tm.config = &oauth2.Config{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			RedirectURL:  getRedirectURL(),
+			Scopes: []string{
+				"https://www.googleapis.com/auth/chromewebstore",
+			},
+			Endpoint: google.Endpoint,
+		}
+	}
+
+	return tm, nil
+}
+
+func (tm *TokenManager) loadSecretsFromRedis(ctx context.Context) error {
+	clientID, err := tm.redisClient.GetSecret(ctx, "GOOGLE_CLIENT_ID")
+	if err != nil {
+		return fmt.Errorf("failed to get client ID from Redis: %w", err)
+	}
+
+	clientSecret, err := tm.redisClient.GetSecret(ctx, "GOOGLE_CLIENT_SECRET")
+	if err != nil {
+		return fmt.Errorf("failed to get client secret from Redis: %w", err)
+	}
+
+	tm.config = &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  getRedirectURL(),
@@ -67,11 +114,39 @@ func NewTokenManager() (*TokenManager, error) {
 		Endpoint: google.Endpoint,
 	}
 
-	return &TokenManager{
-		config:   config,
-		codeChan: make(chan string, 1),
-		errChan:  make(chan error, 1),
-	}, nil
+	refreshToken, err := tm.redisClient.GetSecret(ctx, "GOOGLE_REFRESH_TOKEN")
+	if err == nil && refreshToken != "" {
+		tm.token = &oauth2.Token{
+			RefreshToken: refreshToken,
+		}
+		tm.client = tm.config.Client(ctx, tm.token)
+		log.Println("Loaded existing token from Redis")
+	}
+
+	return nil
+}
+
+func (tm *TokenManager) saveSecretsToRedis(ctx context.Context) error {
+	if tm.config == nil {
+		return fmt.Errorf("OAuth config not available")
+	}
+
+	if err := tm.redisClient.SetSecret(ctx, "GOOGLE_CLIENT_ID", tm.config.ClientID); err != nil {
+		return fmt.Errorf("failed to save client ID to Redis: %w", err)
+	}
+
+	if err := tm.redisClient.SetSecret(ctx, "GOOGLE_CLIENT_SECRET", tm.config.ClientSecret); err != nil {
+		return fmt.Errorf("failed to save client secret to Redis: %w", err)
+	}
+
+	if tm.token != nil && tm.token.RefreshToken != "" {
+		if err := tm.redisClient.SetSecret(ctx, "GOOGLE_REFRESH_TOKEN", tm.token.RefreshToken); err != nil {
+			return fmt.Errorf("failed to save refresh token to Redis: %w", err)
+		}
+	}
+
+	log.Println("OAuth credentials and token saved to Redis")
+	return nil
 }
 
 // startHTTPServer starts the HTTP server for OAuth callbacks
@@ -111,17 +186,19 @@ func (tm *TokenManager) startHTTPServer(ctx context.Context) *http.Server {
 
 // Authorize performs the OAuth2 authorization flow
 func (tm *TokenManager) Authorize(ctx context.Context) error {
-	// Try to load existing token
-	if err := tm.loadToken(); err == nil {
-		log.Println("Using existing token")
+	if tm.token != nil && tm.token.RefreshToken != "" {
+		log.Println("Using existing token from Redis")
 		return tm.refreshIfNeeded(ctx)
 	}
 
-	// Need new authorization
+	if err := tm.loadToken(); err == nil {
+		log.Println("Using existing token from file")
+		return tm.refreshIfNeeded(ctx)
+	}
+
 	authURL := tm.config.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	fmt.Printf("Visit this URL to authorize:\n%s\n", authURL)
 
-	// Wait for authorization code or error
 	var code string
 	select {
 	case code = <-tm.codeChan:
@@ -131,7 +208,6 @@ func (tm *TokenManager) Authorize(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	// Exchange code for token
 	token, err := tm.config.Exchange(ctx, code)
 	if err != nil {
 		return fmt.Errorf("failed to exchange code: %w", err)
@@ -140,9 +216,12 @@ func (tm *TokenManager) Authorize(ctx context.Context) error {
 	tm.token = token
 	tm.client = tm.config.Client(ctx, token)
 
-	// Save token for future use
 	if err := tm.saveToken(); err != nil {
-		log.Printf("Warning: failed to save token: %v", err)
+		log.Printf("Warning: failed to save token to file: %v", err)
+	}
+
+	if err := tm.saveSecretsToRedis(ctx); err != nil {
+		log.Printf("Warning: failed to save secrets to Redis: %v", err)
 	}
 
 	return nil
@@ -173,7 +252,11 @@ func (tm *TokenManager) refreshIfNeeded(ctx context.Context) error {
 
 	// Save updated token
 	if err := tm.saveToken(); err != nil {
-		log.Printf("Warning: failed to save refreshed token: %v", err)
+		log.Printf("Warning: failed to save refreshed token to file: %v", err)
+	}
+
+	if err := tm.saveSecretsToRedis(ctx); err != nil {
+		log.Printf("Warning: failed to save refreshed secrets to Redis: %v", err)
 	}
 
 	log.Println("Token refreshed successfully")
@@ -194,22 +277,8 @@ func (tm *TokenManager) PrintToken() {
 	if tm.token.RefreshToken != "" {
 		fmt.Println("Refresh Token: [present]")
 	}
-	fmt.Println("Token details have been sent via email")
+	fmt.Println("Token details have been stored in GitHub secrets")
 	fmt.Println("==================")
-}
-
-// EmailToken sends the current token via email
-func (tm *TokenManager) EmailToken() error {
-	if tm.token == nil {
-		return fmt.Errorf("no token available")
-	}
-
-	if err := SendTokenNotification(tm.token); err != nil {
-		return fmt.Errorf("failed to send token email: %w", err)
-	}
-
-	log.Println("Token information sent via email")
-	return nil
 }
 
 // saveToken saves the token to a file
@@ -249,6 +318,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create token manager: %v", err)
 	}
+	defer func() { _ = tm.redisClient.Close() }()
 
 	// Start HTTP server immediately for callbacks and health checks
 	srv := tm.startHTTPServer(ctx)
@@ -268,9 +338,9 @@ func main() {
 		log.Fatalf("Authorization failed: %v", err)
 	}
 
-	// Email initial token
-	if err := tm.EmailToken(); err != nil {
-		log.Printf("Failed to email initial token: %v", err)
+	// Store initial secrets in GitHub
+	if err := tm.StoreSecretsInGitHub(); err != nil {
+		log.Printf("Failed to store initial secrets in GitHub: %v", err)
 	} else {
 		tm.PrintToken()
 	}
@@ -295,9 +365,9 @@ func main() {
 				}
 			}
 
-			// Email refreshed token
-			if err := tm.EmailToken(); err != nil {
-				log.Printf("Failed to email refreshed token: %v", err)
+			// Store refreshed secrets in GitHub
+			if err := tm.StoreSecretsInGitHub(); err != nil {
+				log.Printf("Failed to store refreshed secrets in GitHub: %v", err)
 			} else {
 				tm.PrintToken()
 			}
