@@ -29,7 +29,7 @@ func getRedirectURL() string {
 
 // getPort returns the port to listen on
 func getPort() string {
-	if port := os.Getenv("PORT"); port != "" {
+	if port := os.Getenv("PASSENGER_PORT"); port != "" {
 		return port
 	}
 	return "8080"
@@ -37,9 +37,11 @@ func getPort() string {
 
 // TokenManager handles OAuth2 token operations
 type TokenManager struct {
-	config *oauth2.Config
-	token  *oauth2.Token
-	client *http.Client
+	config   *oauth2.Config
+	token    *oauth2.Token
+	client   *http.Client
+	codeChan chan string
+	errChan  chan error
 }
 
 // NewTokenManager creates a new TokenManager instance
@@ -62,8 +64,45 @@ func NewTokenManager() (*TokenManager, error) {
 	}
 
 	return &TokenManager{
-		config: config,
+		config:   config,
+		codeChan: make(chan string, 1),
+		errChan:  make(chan error, 1),
 	}, nil
+}
+
+// startHTTPServer starts the HTTP server for OAuth callbacks
+func (tm *TokenManager) startHTTPServer(ctx context.Context) *http.Server {
+	port := getPort()
+	srv := &http.Server{Addr: ":" + port}
+
+	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			select {
+			case tm.errChan <- fmt.Errorf("no code in callback"):
+			default:
+			}
+			_, _ = fmt.Fprintf(w, "Error: no authorization code received")
+			return
+		}
+		select {
+		case tm.codeChan <- code:
+			_, _ = fmt.Fprintf(w, "Authorization successful! You can close this window.")
+		default:
+		}
+	})
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	go func() {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	return srv
 }
 
 // Authorize performs the OAuth2 authorization flow
@@ -78,49 +117,20 @@ func (tm *TokenManager) Authorize(ctx context.Context) error {
 	authURL := tm.config.AuthCodeURL("state", oauth2.AccessTypeOffline)
 	fmt.Printf("Visit this URL to authorize:\n%s\n", authURL)
 
-	// Start temporary server for callback
-	codeChan := make(chan string, 1)
-	errChan := make(chan error, 1)
-
-	port := getPort()
-	srv := &http.Server{Addr: ":" + port}
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		code := r.URL.Query().Get("code")
-		if code == "" {
-			errChan <- fmt.Errorf("no code in callback")
-			_, _ = fmt.Fprintf(w, "Error: no authorization code received")
-			return
-		}
-		codeChan <- code
-		_, _ = fmt.Fprintf(w, "Authorization successful! You can close this window.")
-	})
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
-
-	go func() {
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-			errChan <- err
-		}
-	}()
-
 	// Wait for authorization code or error
 	var code string
 	select {
-	case code = <-codeChan:
-		// Shutdown server gracefully
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	case err := <-errChan:
-		return fmt.Errorf("callback server error: %w", err)
+	case code = <-tm.codeChan:
+	case err := <-tm.errChan:
+		return fmt.Errorf("callback error: %w", err)
 	case <-ctx.Done():
-		_ = srv.Close()
 		return ctx.Err()
 	}
 
 	// Exchange code for token
 	token, err := tm.config.Exchange(ctx, code)
 	if err != nil {
-		return fmt.Errorf("failed to exchange code: overloadw: %s", err)
+		return fmt.Errorf("failed to exchange code: %w", err)
 	}
 
 	tm.token = token
@@ -174,13 +184,28 @@ func (tm *TokenManager) PrintToken() {
 	}
 
 	fmt.Printf("\n=== Token Info ===\n")
-	fmt.Printf("Access Token: %s\n", tm.token.AccessToken)
+	fmt.Printf("Access Token: [REDACTED]\n")
 	fmt.Printf("Token Type: %s\n", tm.token.TokenType)
 	fmt.Printf("Expiry: %s\n", tm.token.Expiry.Format(time.RFC3339))
 	if tm.token.RefreshToken != "" {
 		fmt.Println("Refresh Token: [present]")
 	}
-	_, _ = fmt.Println("==================")
+	fmt.Println("Token details have been sent via email")
+	fmt.Println("==================")
+}
+
+// EmailToken sends the current token via email
+func (tm *TokenManager) EmailToken() error {
+	if tm.token == nil {
+		return fmt.Errorf("no token available")
+	}
+
+	if err := SendTokenNotification(tm.token); err != nil {
+		return fmt.Errorf("failed to send token email: %w", err)
+	}
+
+	log.Println("Token information sent via email")
+	return nil
 }
 
 // saveToken saves the token to a file
@@ -221,13 +246,30 @@ func main() {
 		log.Fatalf("Failed to create token manager: %v", err)
 	}
 
+	// Start HTTP server immediately for callbacks and health checks
+	srv := tm.startHTTPServer(ctx)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+
+	log.Printf("HTTP server started on port %s", getPort())
+
+	// Start health checker as goroutine
+	StartHealthChecker(ctx)
+
 	// Perform initial authorization
 	if err := tm.Authorize(ctx); err != nil {
 		log.Fatalf("Authorization failed: %v", err)
 	}
 
-	// Print initial token
-	tm.PrintToken()
+	// Email initial token
+	if err := tm.EmailToken(); err != nil {
+		log.Printf("Failed to email initial token: %v", err)
+	} else {
+		tm.PrintToken()
+	}
 
 	// Setup ticker for periodic token refresh and display
 	ticker := time.NewTicker(1 * time.Hour)
@@ -248,10 +290,16 @@ func main() {
 					continue
 				}
 			}
-			tm.PrintToken()
 
-		case s := <-ctx.Done():
-			log.Printf("Received signal: %v", s)
+			// Email refreshed token
+			if err := tm.EmailToken(); err != nil {
+				log.Printf("Failed to email refreshed token: %v", err)
+			} else {
+				tm.PrintToken()
+			}
+
+		case <-ctx.Done():
+			log.Println("Received shutdown signal")
 			return
 		}
 	}
