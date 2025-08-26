@@ -95,6 +95,7 @@ func (tm *TokenManager) Authorize(ctx context.Context) error {
 		codeChan <- code
 		_, _ = fmt.Fprintf(w, "Authorization successful! You can close this window.")
 	})
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 
 	go func() {
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
