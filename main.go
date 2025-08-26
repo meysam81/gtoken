@@ -57,7 +57,6 @@ func NewTokenManager() (*TokenManager, error) {
 		RedirectURL:  getRedirectURL(),
 		Scopes: []string{
 			"https://www.googleapis.com/auth/chromewebstore",
-			"offline",
 		},
 		Endpoint: google.Endpoint,
 	}
