@@ -118,7 +118,7 @@ func (tm *TokenManager) Authorize(ctx context.Context) error {
 	}
 
 	// Need new authorization
-	authURL := tm.config.AuthCodeURL("state", oauth2.AccessTypeOffline)
+	authURL := tm.config.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	fmt.Printf("Visit this URL to authorize:\n%s\n", authURL)
 
 	// Wait for authorization code or error
@@ -252,8 +252,8 @@ func main() {
 
 	// Start HTTP server immediately for callbacks and health checks
 	srv := tm.startHTTPServer(ctx)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
@@ -303,7 +303,9 @@ func main() {
 			}
 
 		case <-ctx.Done():
-			log.Println("Received shutdown signal")
+			log.Println("Received shutdown signal. waiting for server to stop...")
+			<-shutdownCtx.Done()
+			log.Println("shutdown complete")
 			return
 		}
 	}
