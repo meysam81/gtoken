@@ -126,26 +126,14 @@ func encryptSecret(secretValue string, publicKey []byte) (string, error) {
 	var publicKeyArray [32]byte
 	copy(publicKeyArray[:], publicKey)
 
-	// Generate ephemeral keypair for encryption
-	ephemeralPublicKey, ephemeralSecretKey, err := box.GenerateKey(rand.Reader)
+	// Use sealed box encryption (equivalent to crypto_box_seal)
+	encrypted, err := box.SealAnonymous(nil, []byte(secretValue), &publicKeyArray, rand.Reader)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate ephemeral keypair: %w", err)
+		return "", fmt.Errorf("failed to encrypt secret: %w", err)
 	}
-
-	// Generate random nonce
-	var nonce [24]byte
-	if _, err := io.ReadFull(rand.Reader, nonce[:]); err != nil {
-		return "", fmt.Errorf("failed to generate nonce: %w", err)
-	}
-
-	// Encrypt the secret
-	encrypted := box.Seal(nil, []byte(secretValue), &nonce, &publicKeyArray, ephemeralSecretKey)
-
-	// Combine ephemeral public key with encrypted data
-	sealed := append(ephemeralPublicKey[:], encrypted...)
 
 	// Encode to base64
-	return base64.StdEncoding.EncodeToString(sealed), nil
+	return base64.StdEncoding.EncodeToString(encrypted), nil
 }
 
 // updateSecret updates or creates a repository secret
