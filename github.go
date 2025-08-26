@@ -132,8 +132,14 @@ func encryptSecret(secretValue string, publicKey []byte) (string, error) {
 		return "", fmt.Errorf("failed to generate ephemeral keypair: %w", err)
 	}
 
+	// Generate random nonce
+	var nonce [24]byte
+	if _, err := io.ReadFull(rand.Reader, nonce[:]); err != nil {
+		return "", fmt.Errorf("failed to generate nonce: %w", err)
+	}
+
 	// Encrypt the secret
-	encrypted := box.Seal(nil, []byte(secretValue), new([24]byte), &publicKeyArray, ephemeralSecretKey)
+	encrypted := box.Seal(nil, []byte(secretValue), &nonce, &publicKeyArray, ephemeralSecretKey)
 
 	// Combine ephemeral public key with encrypted data
 	sealed := append(ephemeralPublicKey[:], encrypted...)
