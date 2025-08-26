@@ -29,8 +29,12 @@ func getRedirectURL() string {
 
 // getPort returns the port to listen on
 func getPort() string {
-	if port := os.Getenv("PASSENGER_PORT"); port != "" {
+	if port := os.Getenv("PORT"); port != "" {
 		return port
+	}
+
+	if passengerPort := os.Getenv("PASSENGER_PORT"); passengerPort != "" {
+		return passengerPort
 	}
 	return "8080"
 }
