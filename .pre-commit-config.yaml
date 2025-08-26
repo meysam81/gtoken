@@ -1,42 +1,32 @@
+---
 repos:
-  - repo: https://github.com/oxc-project/mirrors-oxlint
-    rev: v1.12.0
-    hooks:
+  - hooks:
       - id: oxlint
         verbose: false
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
-    hooks:
-      - id: check-added-large-files
-        args: ["--maxkb=2000"]
+    repo: https://github.com/oxc-project/mirrors-oxlint
+    rev: v1.12.0
+  - hooks:
+      - args: ["--maxkb=2000"]
+        id: check-added-large-files
       - id: check-ast
       - id: check-executables-have-shebangs
       - id: check-json
       - id: check-shebang-scripts-are-executable
-      - id: check-yaml
-        args:
-          - --allow-multiple-documents
-      - id: detect-private-key
-        exclude: |
+      - args:
+          - "--allow-multiple-documents"
+        id: check-yaml
+      - exclude: |
           (?x)^(
           )$
-      - id: detect-aws-credentials
-        args:
-          - --allow-missing-credentials
-      - id: end-of-file-fixer
-        exclude: |
+        id: detect-private-key
+      - args:
+          - "--allow-missing-credentials"
+        id: detect-aws-credentials
+      - exclude: |
           (?x)^(
           )$
-      - id: name-tests-test
-      - id: file-contents-sorter
-      - id: requirements-txt-fixer
-      - id: sort-simple-yaml
-      - id: trailing-whitespace
-      - id: fix-byte-order-marker
+        id: end-of-file-fixer
       - id: check-builtin-literals
-      - id: check-case-conflict
-      - id: check-builtin-literals
-      - id: check-byte-order-marker
       - id: check-case-conflict
       - id: check-docstring-first
       - id: check-merge-conflict
@@ -46,23 +36,28 @@ repos:
       - id: check-xml
       - id: debug-statements
       - id: destroyed-symlinks
+      - id: file-contents-sorter
       - id: fix-byte-order-marker
       - id: fix-encoding-pragma
       - id: forbid-new-submodules
       - id: forbid-submodules
       - id: mixed-line-ending
-      - id: pretty-format-json
-        args:
-          - --autofix
-  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
-    rev: v9.22.0
-    hooks:
-      - id: commitlint
+      - id: name-tests-test
+      - id: requirements-txt-fixer
+      - id: sort-simple-yaml
+      - id: trailing-whitespace
+      - args:
+          - "--autofix"
+        id: pretty-format-json
+    repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+  - hooks:
+      - additional_dependencies: ["@commitlint/config-conventional"]
+        id: commitlint
         stages: [commit-msg]
-        additional_dependencies: ["@commitlint/config-conventional"]
-  - repo: https://github.com/dnephin/pre-commit-golang
-    rev: v0.5.1
-    hooks:
+    repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
+    rev: v9.22.0
+  - hooks:
       - id: go-fmt
       # - id: go-vet
       # - id: go-lint
@@ -76,13 +71,15 @@ repos:
       # - id: go-unit-tests
       # - id: go-build
       - id: go-mod-tidy
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.7
-    hooks:
+    repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+  - hooks:
       - id: actionlint
-  - repo: https://github.com/reteps/dockerfmt
+    repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+  - hooks:
+      - args:
+          - "--indent=4"
+        id: dockerfmt
+    repo: https://github.com/reteps/dockerfmt
     rev: v0.3.7
-    hooks:
-      - id: dockerfmt
-        args:
-          - --indent=4
