@@ -43,10 +43,6 @@ func NewGitHubConfig() (*GitHubConfig, error) {
 		Token: os.Getenv("GITHUB_TOKEN"),
 	}
 
-	if config.Owner == "" || config.Repo == "" || config.Token == "" {
-		return nil, fmt.Errorf("GITHUB_OWNER, GITHUB_REPO, and GITHUB_TOKEN must be set")
-	}
-
 	return config, nil
 }
 

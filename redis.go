@@ -21,10 +21,6 @@ type RedisClient struct {
 
 func NewRedisClient() (*RedisClient, error) {
 	secretKey := os.Getenv("SECRET_KEY")
-	if secretKey == "" {
-		return nil, fmt.Errorf("SECRET_KEY environment variable must be set")
-	}
-
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
 		redisURL = "redis://localhost:6379"

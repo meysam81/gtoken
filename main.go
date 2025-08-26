@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,31 @@ import (
 const (
 	tokenFile = "token.json"
 )
+
+// validateRequiredEnvVars checks all required environment variables at startup
+func validateRequiredEnvVars() error {
+	requiredVars := map[string]string{
+		"SECRET_KEY":           os.Getenv("SECRET_KEY"),
+		"GITHUB_OWNER":         os.Getenv("GITHUB_OWNER"),
+		"GITHUB_REPO":          os.Getenv("GITHUB_REPO"),
+		"GITHUB_TOKEN":         os.Getenv("GITHUB_TOKEN"),
+		"GOOGLE_CLIENT_ID":     os.Getenv("GOOGLE_CLIENT_ID"),
+		"GOOGLE_CLIENT_SECRET": os.Getenv("GOOGLE_CLIENT_SECRET"),
+	}
+
+	var missing []string
+	for key, value := range requiredVars {
+		if value == "" {
+			missing = append(missing, key)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("required environment variables are missing: %s", strings.Join(missing, ", "))
+	}
+
+	return nil
+}
 
 // getRedirectURL returns the appropriate redirect URL based on environment
 func getRedirectURL() string {
@@ -74,10 +100,6 @@ func NewTokenManager() (*TokenManager, error) {
 
 		clientID := os.Getenv("GOOGLE_CLIENT_ID")
 		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-
-		if clientID == "" || clientSecret == "" {
-			return nil, fmt.Errorf("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set")
-		}
 
 		tm.config = &oauth2.Config{
 			ClientID:     clientID,
@@ -310,6 +332,11 @@ func (tm *TokenManager) loadToken() error {
 }
 
 func main() {
+	// Validate all required environment variables first
+	if err := validateRequiredEnvVars(); err != nil {
+		log.Fatalf("Environment validation failed: %v", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
 	defer stop()
 
