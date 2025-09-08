@@ -5,7 +5,7 @@ go 1.24.4
 require (
 	github.com/redis/go-redis/v9 v9.12.1
 	golang.org/x/crypto v0.41.0
-	golang.org/x/oauth2 v0.30.0
+	golang.org/x/oauth2 v0.31.0
 )
 
 require (
