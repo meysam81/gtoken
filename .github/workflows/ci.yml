@@ -25,6 +25,7 @@ jobs:
         uses: golangci/golangci-lint-action@v8
 
   build-dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
