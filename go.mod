@@ -6,7 +6,7 @@ require (
 	github.com/caarlos0/env/v11 v11.3.1
 	github.com/goccy/go-json v0.10.5
 	github.com/imroc/req/v3 v3.55.0
-	github.com/redis/go-redis/v9 v9.12.1
+	github.com/redis/go-redis/v9 v9.14.0
 	golang.org/x/crypto v0.41.0
 	golang.org/x/oauth2 v0.30.0
 )
