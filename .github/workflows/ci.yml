@@ -33,17 +33,6 @@ jobs:
       packages: write
       id-token: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Cache docker
-        uses: actions/cache@v4
-        id: cache
-        with:
-          path: |
-            /tmp/dockercache
-          key: docker-cache-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}
-          restore-keys: |
-            docker-cache-${{ runner.os }}-
       - name: Build docker
         uses: meysam81/build-docker@main
         with:
@@ -52,9 +41,6 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ github.event.head_commit.timestamp }}
             BUILT_BY=github-actions
-          cache-from: type=local,src=/tmp/dockercache
-          cache-to: type=local,dest=/tmp/dockercache
-          checkout: false
           cosign: true
           image-name: ghcr.io/${{ github.repository }}
           image-extra-tags: |
@@ -62,6 +48,7 @@ jobs:
             ghcr.io/${{ github.repository }}:${{ github.run_id }}
             ghcr.io/${{ github.repository }}:${{ github.sha }}
           kubescape: true
+          platforms: linux/amd64
 
   release-please:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
