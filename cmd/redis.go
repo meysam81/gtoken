@@ -1,4 +1,4 @@
-package main
+package gtoken
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -19,12 +18,9 @@ type RedisClient struct {
 	gcm    cipher.AEAD
 }
 
-func NewRedisClient() (*RedisClient, error) {
-	secretKey := os.Getenv("SECRET_KEY")
-	redisURL := os.Getenv("REDIS_URL")
-	if redisURL == "" {
-		redisURL = "redis://localhost:6379"
-	}
+func NewRedisClient(c *Config) (*RedisClient, error) {
+	secretKey := c.SecretKey
+	redisURL := c.RedisURL
 
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {
@@ -98,8 +94,48 @@ func (r *RedisClient) GetSecret(ctx context.Context, key string) (string, error)
 	return r.decrypt(encrypted)
 }
 
+func (r *RedisClient) SetRepoCredential(ctx context.Context, repoKey, field, value string) error {
+	encrypted, err := r.encrypt(value)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt value: %w", err)
+	}
+
+	return r.client.HSet(ctx, repoKey, field, encrypted).Err()
+}
+
+func (r *RedisClient) GetRepoCredential(ctx context.Context, repoKey, field string) (string, error) {
+	encrypted, err := r.client.HGet(ctx, repoKey, field).Result()
+	if err != nil {
+		return "", err
+	}
+
+	return r.decrypt(encrypted)
+}
+
+func (r *RedisClient) GetAllRepoCredentials(ctx context.Context, repoKey string) (map[string]string, error) {
+	encryptedData, err := r.client.HGetAll(ctx, repoKey).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]string)
+	for field, encrypted := range encryptedData {
+		decrypted, err := r.decrypt(encrypted)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt field %s: %w", field, err)
+		}
+		result[field] = decrypted
+	}
+
+	return result, nil
+}
+
 func (r *RedisClient) DeleteSecret(ctx context.Context, key string) error {
 	return r.client.Del(ctx, key).Err()
+}
+
+func (r *RedisClient) DeleteRepoCredential(ctx context.Context, repoKey, field string) error {
+	return r.client.HDel(ctx, repoKey, field).Err()
 }
 
 func (r *RedisClient) Close() error {
