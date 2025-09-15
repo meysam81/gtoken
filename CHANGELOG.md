@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0](https://github.com/meysam81/gtoken/compare/v1.0.0...v1.1.0) (2025-09-15)
+
+
+### Features
+
+* overhault rewrite in favor of modularity and extensibility ([4c5689f](https://github.com/meysam81/gtoken/commit/4c5689faab7105cde97ed90909dd30a9a340cd8a))
+
+
+### Bug Fixes
+
+* **CI:** build a fast AMD64 and be done with it ([6c44bb0](https://github.com/meysam81/gtoken/commit/6c44bb0a4ff0b25869c7c7840edf0f3f138de2d2))
+* **CI:** only build latest on main ([d5f5961](https://github.com/meysam81/gtoken/commit/d5f5961220b0ea9e42c55aa840347bf8464dfa4c))
+* **CI:** upgrade golangci lint to latest ([7fb2452](https://github.com/meysam81/gtoken/commit/7fb2452fb66c95788d2648f5a56a7315198dd601))
+
 ## 1.0.0 (2025-08-26)
 
 
