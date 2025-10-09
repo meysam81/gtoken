@@ -8,7 +8,7 @@ require (
 	github.com/imroc/req/v3 v3.55.0
 	github.com/redis/go-redis/v9 v9.12.1
 	golang.org/x/crypto v0.41.0
-	golang.org/x/oauth2 v0.30.0
+	golang.org/x/oauth2 v0.32.0
 )
 
 require (
